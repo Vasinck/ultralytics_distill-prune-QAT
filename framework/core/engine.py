@@ -79,7 +79,7 @@ class DetectionEngine:
         # 构建基础参数字典 (overrides)
         args = {
             'data': data_path,
-            'project': 'runs/train',
+            'project': self.config.get('project', 'runs/train'),
             'name': task_name,
             'epochs': train_cfg.get('epochs', 10),
             'batch': train_cfg.get('batch', 16),
@@ -125,7 +125,8 @@ class DetectionEngine:
             print(f"[Framework] 标准训练模式")
             self.model.train(**args)
 
-        print(f"[Framework] 训练完成。结果已保存至 runs/train/{task_name}")
+        project_dir = self.config.get('project', 'runs/train')
+        print(f"[Framework] 训练完成。结果已保存至 {project_dir}/{task_name}")
 
 if __name__ == "__main__":
     pass
