@@ -1,5 +1,5 @@
-task_name: "distill_yolo11n_yolov8-repvgg-v3"
-model_type: "framework/configs/model/yolov8-repvgg.yaml"  # Student Model
+task_name: "distill_test"
+model_type: "yolo11n.pt"  # Student Model
 
 data:
   config_path: "framework/configs/dataset/people_dataset.yaml"
@@ -9,15 +9,43 @@ training:
   batch: 64
   imgsz: 320
   device: ""
-  workers: 8
+  workers: 12
   optimizer: "auto"
 
   distill: true  # 启用蒸馏
   distillation:
-    teacher: "runs/train/teacher_yolo11n/weights/best.pt"  # Teacher Model（更大的模型）
-    loss_type: "semantic"       # 蒸馏损失类型: "pkd" (推荐), "semantic" (进阶), 或 "mse" (向后兼容)
-                            # pkd: 特征对齐 + MSE，稳定性好
-                            # semantic: 语义分离蒸馏，分类用KL散度+温度软化，回归用MSE (v1.2新增)
-                            # mse: 简单MSE损失 - 对特征尺度敏感
+    teacher: "runs/train/baseline_yolov8-lite-v10/weights/best.pt"  # Teacher Model（更大的模型）
+
+    # ==================== 蒸馏损失类型 ====================
+    # 可选值:
+    #   - "cwd": Channel-Wise Distillation (推荐，稳定性好)
+    #           使用通道级 KL 散度，不受特征尺度影响
+    #   - "fgd": Focal and Global Distillation (适合目标检测)
+    #           结合前景/背景分离蒸馏 + 通道关系蒸馏
+    #   - "semantic": 语义分离蒸馏 (检测头输出)
+    #           分类分支用 KL 散度，回归分支用 smooth_l1
+    #
+    # 注意: MSE 和 PKD 已移除，因为它们会导致训练崩溃
+    loss_type: "fgd"
+
+    # ==================== 通用参数 ====================
     alpha: 0.5             # 蒸馏 Loss 的权重 (推荐: 0.3-0.7)
     T: 2.0                 # 温度系数，用于 semantic 模式的分类分支软化
+
+    # ==================== 中间层特征蒸馏配置 (cwd/fgd 模式必需) ====================
+    # 指定要蒸馏的模型层索引 (对应 backbone/neck 的输出层)
+    # YOLOv8/v11 典型层索引:
+    #   - 层 4: P3 特征 (80x80 @ 320 输入)
+    #   - 层 6: P4 特征 (40x40 @ 320 输入)
+    #   - 层 9: P5 特征 (20x20 @ 320 输入)
+    # 你可以根据学生/教师模型的架构调整这些索引
+    feature_layers: [4, 6, 9]
+
+    # CWD 专用参数
+    cwd_temperature: 4.0   # CWD 的温度系数 (推荐: 2.0-6.0)
+
+    # FGD 权重参数 (可选，通常使用默认值即可)
+    alpha_fgd: 0.001     # 前景损失权重
+    beta_fgd: 0.0005     # 背景损失权重
+    gamma_fgd: 0.0005    # 注意力损失权重
+    lambda_fgd: 0.000005 # 关系损失权重
