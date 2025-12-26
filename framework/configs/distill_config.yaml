@@ -1,0 +1,23 @@
+task_name: "distill_yolo11n_yolov8-repvgg-v3"
+model_type: "framework/configs/model/yolov8-repvgg.yaml"  # Student Model
+
+data:
+  config_path: "framework/configs/dataset/people_dataset.yaml"
+
+training:
+  epochs: 100
+  batch: 64
+  imgsz: 320
+  device: ""
+  workers: 8
+  optimizer: "auto"
+
+  distill: true  # 启用蒸馏
+  distillation:
+    teacher: "runs/train/teacher_yolo11n/weights/best.pt"  # Teacher Model（更大的模型）
+    loss_type: "semantic"       # 蒸馏损失类型: "pkd" (推荐), "semantic" (进阶), 或 "mse" (向后兼容)
+                            # pkd: 特征对齐 + MSE，稳定性好
+                            # semantic: 语义分离蒸馏，分类用KL散度+温度软化，回归用MSE (v1.2新增)
+                            # mse: 简单MSE损失 - 对特征尺度敏感
+    alpha: 0.5             # 蒸馏 Loss 的权重 (推荐: 0.3-0.7)
+    T: 2.0                 # 温度系数，用于 semantic 模式的分类分支软化

@@ -1,0 +1,17 @@
+task_name: baseline_yolov8-lite-v7
+model_type: "ultralytics/cfg/models/v8/yolov8n.yaml"
+
+data:
+  config_path: "framework/configs/dataset/people_dataset.yaml"
+
+training:
+  epochs: 100
+  batch: 64
+  imgsz: 320
+  device: ""        # 空字符串表示自动选择
+  workers: 8
+  optimizer: "auto"
+  exist_ok: True
+
+  prune: false
+  distill: false

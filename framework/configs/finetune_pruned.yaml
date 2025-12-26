@@ -1,0 +1,34 @@
+# 剪枝后模型微调配置文件
+# 用于对剪枝后的模型进行恢复训练，并使用原始模型作为 Teacher 进行蒸馏
+
+# 1. 任务基础信息
+task_name: "week3_finetune_pruned"
+model_type: "runs/prune/pruned_model.pt"  # 剪枝后的模型
+
+# 2. 数据配置
+data:
+  config_path: "framework/configs/unified_dataset.yaml"
+
+# 3. 训练超参数
+training:
+  epochs: 20               # 微调需要足够的 epoch 来恢复精度
+  batch: 64
+  imgsz: 640
+  device: ""
+  workers: 4
+  optimizer: "SGD"         # 微调时推荐使用 SGD
+
+  # 微调模式配置
+  finetune:
+    enabled: true
+    lr0: 0.001             # 较小的初始学习率（普通训练通常是 0.01）
+    lrf: 0.1               # 最终学习率衰减因子
+    reset_optimizer: true  # 重置优化器状态
+
+  # 蒸馏配置（使用原始模型作为 Teacher）
+  distill: false
+  distillation:
+    teacher: "yolov8n.pt"  # 剪枝前的原始模型作为 Teacher
+    loss_type: "logits"
+    alpha: 0.5             # 蒸馏 Loss 的权重
+    T: 2.0                 # 温度系数

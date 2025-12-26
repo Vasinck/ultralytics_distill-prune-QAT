@@ -1,0 +1,14 @@
+# 统一检测数据集配置文件模板
+# 目标：将分散的各个数据集整合为一个统一的视图
+
+# 根目录 (修改为实际下载的路径)
+path: people
+
+# 训练集与验证集路径 (相对于 path)
+train: images/train
+val: images/val
+
+# 类别名称 (COCO8 的 80 类)
+names:
+  0: person
+  1: head

@@ -1,0 +1,53 @@
+# Ultralytics AGPL-3.0 License - https://ultralytics.com/license
+
+# YOLOv8-RepVGG-Lite: Ultra-lightweight model with RepVGG-style backbone
+# Uses RepConv modules with reduced channels for maximum efficiency
+# Key optimizations:
+#   - Reduced channel widths (0.5x compared to standard)
+#   - Straight-through backbone structure
+#   - Inference: fuses to single 3x3 conv per layer
+
+# Parameters
+nc: 80 # number of classes
+scales: # model compound scaling constants
+  # [depth, width, max_channels]
+  n: [0.5, 0.5, 1024]
+  # n: [0.33, 0.25, 512]  # YOLOv8n-repvgg-lite (narrower channels)
+  s: [0.33, 0.50, 512]  # YOLOv8s-repvgg-lite
+  m: [0.67, 0.75, 512]  # YOLOv8m-repvgg-lite
+  l: [1.00, 1.00, 512]  # YOLOv8l-repvgg-lite
+  x: [1.00, 1.25, 512]  # YOLOv8x-repvgg-lite
+
+# YOLOv8-RepVGG-Lite backbone (straight-through, narrow)
+backbone:
+  # [from, repeats, module, args]
+  - [-1, 1, Conv, [32, 3, 2]]           # 0-P1/2   stem (reduced from 64)
+  - [-1, 1, Conv, [64, 3, 2]]           # 1-P2/4   (reduced from 128)
+  - [-1, 2, RepConv, [64]]              # 2        (reduced repeats)
+  - [-1, 1, Conv, [128, 3, 2]]          # 3-P3/8   (reduced from 256)
+  - [-1, 4, RepConv, [128]]             # 4        (reduced repeats)
+  - [-1, 1, Conv, [256, 3, 2]]          # 5-P4/16  (reduced from 512)
+  - [-1, 4, RepConv, [256]]             # 6        (reduced repeats)
+  - [-1, 1, Conv, [512, 3, 2]]          # 7-P5/32  (reduced from 1024)
+  - [-1, 2, RepConv, [512]]             # 8        (reduced repeats)
+  - [-1, 1, SPPF, [512, 5]]             # 9
+
+# YOLOv8-RepVGG-Lite head (FPN + PAN, narrow)
+head:
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
+  - [[-1, 6], 1, Concat, [1]]           # cat backbone P4
+  - [-1, 2, RepConv, [256]]             # 12
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
+  - [[-1, 4], 1, Concat, [1]]           # cat backbone P3
+  - [-1, 2, RepConv, [128]]             # 15 (P3/8-small)
+
+  - [-1, 1, Conv, [128, 3, 2]]
+  - [[-1, 12], 1, Concat, [1]]          # cat head P4
+  - [-1, 2, RepConv, [256]]             # 18 (P4/16-medium)
+
+  - [-1, 1, Conv, [256, 3, 2]]
+  - [[-1, 9], 1, Concat, [1]]           # cat head P5
+  - [-1, 2, RepConv, [512]]             # 21 (P5/32-large)
+
+  - [[15, 18, 21], 1, Detect, [nc]]     # Detect(P3, P4, P5)

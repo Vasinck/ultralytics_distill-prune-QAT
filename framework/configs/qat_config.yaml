@@ -1,0 +1,123 @@
+# QAT (量化感知训练) 配置文件
+# 自定义目标检测框架 v1.2
+#
+# 本配置文件旨在启用 INT8 量化感知训练，以便在边缘设备上高效部署
+# (支持 TensorRT, ONNX Runtime, NCNN/MNN)。
+#
+# 使用方法:
+#   python framework/tools/qat.py -c framework/configs/qat_config.yaml
+#
+# 或者通过命令行参数:
+#   python framework/tools/qat.py \
+#       --model runs/train/baseline/weights/best.pt \
+#       --data framework/configs/dataset/people_dataset.yaml \
+#       --epochs 10 \
+#       --backend qnnpack
+
+task_name: "qat_yolov8n_mobile"
+
+# 待量化的预训练模型
+# 可选类型:
+# - 标准 YOLO 模型: yolov8n.pt
+# - 自定义训练模型: runs/train/xxx/weights/best.pt
+# - 蒸馏模型: runs/train/distill_xxx/weights/best.pt
+# - 剪枝模型: runs/prune/xxx/pruned_model.pt
+model_type: "runs/train/baseline/weights/best.pt"
+
+# 数据集配置
+data:
+  config_path: "framework/configs/dataset/people_dataset.yaml"
+
+# QAT 特定设置
+qat:
+  # 目标部署后端
+  # 可选选项:
+  #   - qnnpack: ARM 移动端 (NCNN, MNN, ONNX Runtime Mobile)
+  #   - fbgemm: x86 服务器端 (ONNX Runtime, OpenVINO)
+  #   - tensorrt: NVIDIA TensorRT
+  #   - x86: fbgemm 的别名
+  #   - onednn: Intel OneDNN 优化版
+  backend: "qnnpack"
+
+  # 逐通道权重量化 (推荐，以获得更好的精度)
+  per_channel: true
+
+  # 量化位宽 (INT8 是标准配置)
+  bit_width: 8
+
+  # 将 SiLU 替换为 ReLU6 (推荐用于 INT8 兼容性)
+  # 由于 SiLU 的非单调特性，其对量化不友好
+  # 可能会导致 1-2% 的精度下降，但能显著改善量化效果
+  replace_silu: true
+
+# 校准设置 (可选，但强烈推荐)
+calibration:
+  enabled: true
+  batches: 100          # 用于收集激活值统计信息的批次数
+
+# QAT 训练参数
+# 注意: QAT 通常需要:
+# - 较低的学习率 (正常训练的 1/10 到 1/100)
+# - 较少的轮次 (通常 10-20 个 epoch 即可)
+# - 带动量的 SGD (比 Adam 更稳定)
+training:
+  epochs: 10            # 对于 QAT，通常 10-20 个 epoch 足够
+  batch: 32
+  imgsz: 640
+  device: "0"           # GPU 设备 ID，设为 "" 则自动选择
+  workers: 8
+
+  # 学习率 (远低于正常训练)
+  lr0: 0.0001           # 典型 YOLO lr0=0.01 的 1/100
+  lrf: 0.01             # 最终学习率比率
+
+  # 优化器 (推荐使用 SGD 以保证 QAT 稳定性)
+  optimizer: "SGD"
+  momentum: 0.937
+  weight_decay: 0.0005
+
+  # QAT 微调不需要预热
+  warmup_epochs: 0
+
+# 导出设置
+export:
+  save_dir: "runs/qat"
+  name: "qat_yolov8n_mobile"
+
+  # 导出格式
+  pytorch: true         # 保存量化后的 PyTorch 模型 (.pt)
+  onnx: true            # 导出为 ONNX 格式
+
+  # ONNX 导出选项
+  onnx_opset: 13        # Opset 版本 (需要 13+ 以支持 QDQ 算子)
+  simplify: true        # 运行 onnxsim 进行简化
+  dynamic_batch: false  # 启用动态批次大小
+
+# =============================================================================
+# 常见部署目标的预设配置
+# =============================================================================
+#
+# 移动端部署 (Android/iOS 搭配 NCNN/MNN):
+#   backend: qnnpack
+#   replace_silu: true
+#   per_channel: true
+#   imgsz: 320 或 640
+#
+# TensorRT 部署 (NVIDIA 边缘 GPU):
+#   backend: tensorrt
+#   replace_silu: false  # TensorRT 对 SiLU 支持良好
+#   per_channel: true
+#   calibration.enabled: true
+#
+# 服务器部署 (x86 CPU 搭配 ONNX Runtime):
+#   backend: fbgemm
+#   replace_silu: true
+#   per_channel: true
+#   imgsz: 640
+#
+# OpenVINO 部署 (Intel 硬件):
+#   backend: onednn
+#   replace_silu: true
+#   per_channel: true
+#
+# =============================================================================
