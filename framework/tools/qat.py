@@ -863,7 +863,7 @@ def main():
 
     # 步骤 1：准备模型
     print("\n[步骤 1/4] 正在为 QAT 准备模型...")
-    yolo = finetuner.prepare()
+    finetuner.prepare()
 
     # 步骤 2：校准（可选）
     if args.calibrate:

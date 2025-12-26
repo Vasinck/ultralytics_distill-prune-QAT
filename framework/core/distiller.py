@@ -30,14 +30,14 @@ def align_scale(stu_feat, tea_feat):
     tea_mean = tea_flat.mean(dim=2, keepdim=True)
     tea_std = tea_flat.std(dim=2, keepdim=True)
 
-    # [FIX] 使用 clamp 确保最小标准差，防止除零导致 inf/NaN
+    # 使用 clamp 确保最小标准差，防止除零导致 inf/NaN
     eps = 1e-5
     stu_std = stu_std.clamp(min=eps)
 
     # 归一化学生特征到零均值单位方差
     normalized = (stu_flat - stu_mean) / stu_std
 
-    # [FIX] clamp 防止极端值传播，避免 AMP (fp16) 下溢出
+    # clamp 防止极端值传播，避免 AMP (fp16) 下溢出
     normalized = normalized.clamp(-10, 10)
 
     # 对齐到教师特征的分布
@@ -70,7 +70,6 @@ def compute_distill_loss(model, batch, preds=None):
         preds = model(batch["img"])
 
     # 3. 计算原始真值损失
-    # 我们需要确保 student_model 已经有了 criterion
     if not hasattr(model, 'criterion'):
         model.criterion = model.init_criterion()
     
@@ -107,7 +106,7 @@ def compute_distill_loss(model, batch, preds=None):
             if stu_p.shape != tea_p.shape:
                 continue
 
-            # **语义分离蒸馏 (v1.2 新增)**
+            # 语义分离蒸馏 (v1.2 新增)
             if loss_type == 'semantic':
                 # 检测头输出结构：[N, 4*reg_max + nc, H, W]
                 # 前 64 通道（4*16）：DFL 回归分布
@@ -139,16 +138,16 @@ def compute_distill_loss(model, batch, preds=None):
 
                 distill_loss += reg_loss + cls_loss
 
-            # **CrossKD 改进：特征对齐 + MSE**
+            # CrossKD 改进：特征对齐 + MSE
             elif loss_type == 'pkd':
                 stu_aligned = align_scale(stu_p, tea_p)
                 distill_loss += F.mse_loss(stu_aligned, tea_p)
 
-            # **简单 MSE 损失（向后兼容）**
+            # 简单 MSE 损失（向后兼容）
             else:
                 distill_loss += F.mse_loss(stu_p, tea_p)
 
-    # [修复] 安全检查：如果蒸馏损失异常（NaN/Inf），跳过本次蒸馏
+    # 如果蒸馏损失异常（NaN/Inf），跳过本次蒸馏
     if isinstance(distill_loss, torch.Tensor):
         if torch.isnan(distill_loss) or torch.isinf(distill_loss):
             print(f"[Distiller Warning] distill_loss is {distill_loss.item():.4f}, skipping distillation this step")
@@ -183,17 +182,13 @@ class DistillationTrainer(DetectionTrainer):
         if not teacher_path:
             raise ValueError("Distillation enabled but no teacher model specified!")
         
-        print(f"[Distiller] Loading teacher model from {teacher_path}...")
-        # 使用 YOLO 类加载模型，这是更稳健的公开 API
-        # YOLO(path) 会自动下载并加载权重
+        print(f"[Distiller] 从 {teacher_path} 中载入教师模型...")
         yolo_model = YOLO(teacher_path)
         self.teacher_model = yolo_model.model
 
-        # 冻结教师模型参数
         for param in self.teacher_model.parameters():
             param.requires_grad = False
 
-        # 设置为评估模式
         self.teacher_model.eval()
 
         # 确保教师模型和当前设备一致（在 get_model 后会被再次检查，这里先预处理）
@@ -257,7 +252,7 @@ class DistillationTrainer(DetectionTrainer):
 
         # 3. 劫持损失函数
         # 使用 types.MethodType 将全局函数绑定为实例方法
-        # 这样 Pickle 可以序列化它（因为它引用的是模块级函数）
+        # 这样 Pickle 可以序列化（因为它引用的是模块级函数）
         model.loss = types.MethodType(compute_distill_loss, model)
 
         return model
