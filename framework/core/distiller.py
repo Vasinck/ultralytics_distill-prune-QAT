@@ -191,7 +191,10 @@ def compute_distill_loss(model, batch, preds=None):
     if not torch.is_grad_enabled():
         if not hasattr(model, 'criterion'):
             model.criterion = model.init_criterion()
-        return model.criterion(preds, batch)
+        gt_loss, loss_items = model.criterion(preds, batch)
+        # 验证时也需要返回 4 个损失项以匹配 loss_names，第 4 个（distill）为 0
+        extended_loss_items = torch.cat([loss_items, torch.zeros(1, device=loss_items.device)])
+        return gt_loss, extended_loss_items
 
     # 1. 确保 Teacher 在正确的设备上
     student_device = next(model.parameters()).device
@@ -315,11 +318,20 @@ def compute_distill_loss(model, batch, preds=None):
     if isinstance(distill_loss, torch.Tensor):
         if torch.isnan(distill_loss) or torch.isinf(distill_loss):
             print(f"[Distiller Warning] distill_loss 异常 ({distill_loss.item():.4f})，跳过本次蒸馏")
-            return gt_loss, loss_items
+            # 返回时补充一个 0 值的蒸馏损失，保持 loss_items 长度一致
+            extended_loss_items = torch.cat([loss_items, torch.zeros(1, device=loss_items.device)])
+            return gt_loss, extended_loss_items
 
     total_loss = gt_loss + alpha * distill_loss
 
-    return total_loss, loss_items
+    # 扩展 loss_items，添加蒸馏损失分量以便显示
+    # loss_items 原本是 [box_loss, cls_loss, dfl_loss]，现在变成 [box_loss, cls_loss, dfl_loss, distill_loss]
+    distill_loss_item = (alpha * distill_loss).detach()
+    if distill_loss_item.dim() == 0:
+        distill_loss_item = distill_loss_item.unsqueeze(0)
+    extended_loss_items = torch.cat([loss_items, distill_loss_item])
+
+    return total_loss, extended_loss_items
 
 
 class DistillationContext:
@@ -340,11 +352,19 @@ class DistillationContext:
         # 通道适配器
         self.adapters = {}
 
-    def _make_hook(self, storage_dict, layer_idx):
-        """创建用于捕获特征的 forward hook"""
+    def _make_hook(self, storage_dict, layer_idx, check_grad=True):
+        """
+        创建用于捕获特征的 forward hook
+
+        Args:
+            storage_dict: 存储特征的字典
+            layer_idx: 层索引
+            check_grad: 是否检查梯度状态（学生模型需要，教师模型不需要）
+        """
         def hook(module, input, output):
-            # 只在训练模式下捕获特征
-            if torch.is_grad_enabled():
+            # 学生模型只在训练模式（梯度启用）下捕获特征
+            # 教师模型始终捕获特征（因为在 no_grad 块中运行）
+            if not check_grad or torch.is_grad_enabled():
                 storage_dict[layer_idx] = output
         return hook
 
@@ -358,17 +378,17 @@ class DistillationContext:
         self.clear_hooks()
 
         for layer_idx in feature_layers:
-            # 学生模型 hook
+            # 学生模型 hook（需要检查梯度状态）
             if hasattr(student_model, 'model') and layer_idx < len(student_model.model):
                 h = student_model.model[layer_idx].register_forward_hook(
-                    self._make_hook(self.student_features, layer_idx)
+                    self._make_hook(self.student_features, layer_idx, check_grad=True)
                 )
                 self._hooks.append(h)
 
-            # 教师模型 hook
+            # 教师模型 hook（不检查梯度状态，因为教师在 no_grad 中运行）
             if hasattr(self.teacher_model, 'model') and layer_idx < len(self.teacher_model.model):
                 h = self.teacher_model.model[layer_idx].register_forward_hook(
-                    self._make_hook(self.teacher_features, layer_idx)
+                    self._make_hook(self.teacher_features, layer_idx, check_grad=False)
                 )
                 self._hooks.append(h)
 
@@ -393,6 +413,19 @@ class DistillationTrainer(DetectionTrainer):
 
         # 提前加载 Teacher 模型
         self._load_teacher()
+
+    def get_validator(self):
+        """
+        重写 get_validator，扩展 loss_names 以包含蒸馏损失
+        """
+        from copy import copy
+        from ultralytics.models import yolo
+
+        # 扩展损失名称，添加蒸馏损失
+        self.loss_names = "box_loss", "cls_loss", "dfl_loss", "distill"
+        return yolo.detect.DetectionValidator(
+            self.test_loader, save_dir=self.save_dir, args=copy(self.args), _callbacks=self.callbacks
+        )
 
     def _load_teacher(self):
         teacher_path = self.distill_cfg.get('teacher')
